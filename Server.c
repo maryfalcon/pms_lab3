@@ -25,6 +25,12 @@ void* thread_function(void *param)
 		close(client_id);
 		return 1;
 	}
+	filepath[bytesRead] = 0;
+	if (access(filepath, F_OK) == -1) {
+		printf("File not found.\n");
+		close(client_id);
+		return 0;
+	}
 	file = fopen(filepath, "rb");
 	if (file == NULL) {
 		printf("File wasn't opened.\n");
@@ -54,13 +60,14 @@ void* thread_function(void *param)
 int main()
 {
 
-	int socket_id = 0 , client_id = 0;
+	int socket_id = 0 , client_id = 0, opt=1;
 	struct sockaddr_in serv_addr;
 #ifdef THREAD	
 	pthread_t threads[MAX_THREAD_COUNT] = { NULL };
 	int i = 0;
+#elif defined(PROCESS)
+	pid_t process_id = 0;
 #endif
-
 	if ((socket_id = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
 		printf("Socket wasn't bind.\n");
 		return 1;
@@ -69,6 +76,11 @@ int main()
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_addr.s_addr = INADDR_ANY;
 	serv_addr.sin_port = htons(PORTNO);
+
+	if (setsockopt(socket_id, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(int)) == -1) {
+    		printf("Socket options weren't set.\n");
+		return 1;
+	}
 
 	if ((bind(socket_id, (struct sockaddr *)&serv_addr, sizeof(serv_addr))) == -1) {
 		printf("Socket wasn't bound.\n");
@@ -81,7 +93,7 @@ int main()
 	}
 
 	while (1) {
-		client_id = accept(socket_id, NULL, (socklen_t *)SOCK_CLOEXEC);
+		client_id = accept(socket_id, NULL, NULL/*(socklen_t *)SOCK_CLOEXEC*/);
 
 		if (client_id < 0) {
 			printf("Client wasn't accepted.\n");
@@ -103,6 +115,18 @@ int main()
 			continue;
 		}
 		printf("Thread was created.\n");
+#elif defined(PROCESS)
+		switch (process_id = fork()) {
+		case -1:
+			printf("Process creation failed.\n");
+			break;
+		case 0:
+			thread_function((void*)client_id);
+			return 0;
+		default:
+		  	close(client_id);
+			break;
+		}
 #else
 		thread_function((void*)client_id);
 #endif		
